@@ -1,16 +1,14 @@
-phonemes = "ᄀᄁᄂᄃᄄᄅᄆᄇᄈᄉᄊᄌᄍᄎᄏᄐᄑ하ᅣᅥᅦᅧᅨᅩᅪᅬᅭᅮᅯᅱᅲᅳᅴᅵᆨᆫᆮᆯᆷᆸᆼ"
-pad = "_"
-punctuations = " "
-symbols = list(pad) + list(punctuations) + list(phonemes)
+def generate_symbol_to_id(symbols):
+    return  {s: i for i, s in enumerate(symbols)}
 
 
-_symbol_to_id = {s: i for i, s in enumerate(symbols)}
-_id_to_symbol = {i: s for i, s in enumerate(symbols)}
+def generate_id_to_symbol(symbols):
+    return {i: s for i, s in enumerate(symbols)}
 
 
-def text_to_sequence(text):
-    return [_symbol_to_id[s] for s in text]
+def text_to_sequence(text, symbol_to_id):
+    return [symbol_to_id[s] for s in text]
 
 
-def sequence_to_text(sequence):
-    return "".join([_id_to_symbol[s] for s in sequence])
+def sequence_to_text(sequence, id_to_symbol):
+    return "".join([id_to_symbol[s] for s in sequence])

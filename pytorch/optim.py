@@ -228,7 +228,7 @@ class RAdam(Optimizer):
 
 class NoamAnnealing(_LRScheduler):
     def __init__(
-        self, optimizer, *, d_model, warmup_steps=None, warmup_ratio=None, max_steps=None, min_lr=0.0, last_epoch=-1
+        self, optimizer, *, d_model, warmup_steps=None, warmup_ratio=None, max_steps=None, min_lr=1e-4, last_epoch=-1
     ):
         self._normalize = d_model ** (-0.5)
         assert not (

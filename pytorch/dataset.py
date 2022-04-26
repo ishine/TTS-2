@@ -4,7 +4,7 @@ from torch.utils.data import Dataset, Sampler
 from torch.nn.utils.rnn import pad_sequence
 
 from utils.audio import log_f0
-from utils.text import text_to_sequence
+from utils.text import text_to_sequence, generate_symbol_to_id
 
 
 def collate_fn(batch):
@@ -51,12 +51,14 @@ class UniformLengthBatchingSampler(Sampler):
 
 
 class TTSDataset(Dataset):
-    def __init__(self, transcript):
+    def __init__(self, transcript, phonemes):
+        phonemes = list(phonemes)
+        symbol_to_id = generate_symbol_to_id(phonemes)
         self.walker = []
         with open(transcript, encoding='utf8') as f:
             for line in f:
                 line = line.strip().split("|")
-                text = torch.tensor(text_to_sequence(line[1]))
+                text = torch.tensor(text_to_sequence(line[1], symbol_to_id))
                 data = np.load(line[0])
                 mel = torch.tensor(data['mel'])
                 log_f0s = torch.tensor(log_f0(data['f0']))

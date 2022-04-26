@@ -28,17 +28,15 @@ def save(name, step, epoch, model, opt, sch, scaler=None, size=100):
 
 
 def main(config, checkpoint):
-    os.environ["WANDB_MODE"] = "offline"
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
 
-    with open(config) as f:
+    with open(config, encoding='utf8') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
-    training_data = TTSDataset(f"{config['transcript']}")
-    validation_data = TTSDataset(f"{config['val_transcript']}")
+    training_data = TTSDataset(config['transcript'], config['phonemes'])
+    validation_data = TTSDataset(config['val_transcript'], config['phonemes'])
 
     batch_size = config['batch_size']
     num_workers = config['num_workers']
@@ -55,7 +53,7 @@ def main(config, checkpoint):
     betas = config['betas']
     weight_decay = float(config['weight_decay'])
     opt = Lookahead(RAdam(model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay))
-    sch = NoamAnnealing(opt, d_model=1, warmup_steps=1000, max_steps=9999999999, min_lr=1e-6)
+    sch = NoamAnnealing(opt, d_model=1, warmup_steps=1000, max_steps=9999999999, min_lr=1e-4)
     scaler = None
     if config['fp_16']:
         print("Using mixed precision")
