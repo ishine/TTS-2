@@ -13,7 +13,7 @@ from models.mixertts import MixerTTS
 from optim import NoamAnnealing, Lookahead, RAdam
 
 
-def save(name, step, epoch, model, opt, sch, scaler=None):
+def save(name, step, epoch, model, opt, sch, scaler=None, size=100):
     ckpt = {
         'step': step,
         'epoch': epoch,
@@ -24,7 +24,7 @@ def save(name, step, epoch, model, opt, sch, scaler=None):
     if scaler is not None:
         ckpt['scaler_state_dict'] = scaler.state_dict()
     torch.save(ckpt, f'{name}_{epoch}.pt')
-    Path(f'{name}_{epoch - 5}.pt').unlink(missing_ok=True)
+    Path(f'{name}_{epoch - size}.pt').unlink(missing_ok=True)
 
 
 def main(config, checkpoint):
@@ -42,6 +42,7 @@ def main(config, checkpoint):
 
     batch_size = config['batch_size']
     num_workers = config['num_workers']
+    save_and_val_every_n_epoch = config['save_and_val_every_n_epoch']
 
     training_sampler = UniformLengthBatchingSampler(training_data, batch_size=batch_size)
     training_loader = DataLoader(training_data, batch_sampler=training_sampler, collate_fn=collate_fn, num_workers=num_workers, pin_memory=True)
@@ -105,22 +106,22 @@ def main(config, checkpoint):
                 opt.step()
                 sch.step()
             step += 1
-        model.eval()
-        with torch.no_grad():
-            for i, batch in enumerate(validation_loader):
-                batch = [x.to(device) for x in batch]
-                o = model.validation_step(batch, i, e)
-                specs = o['specs']
-                pitches = o['pitches']
-                audios = o['audios']
-                for s, p, a in zip(specs, pitches, audios):
-                    writer.add_image(s[1], s[0], step, dataformats='HWC')
-                    writer.add_image(p[1], p[0], step, dataformats='HWC')
-                    if a is not None:
-                        writer.add_audio(a[1], a[0], step, sample_rate=24000)
-            save(name, step, e, model, opt, sch, scaler)
-        model.train()
-        e += 1
+        if e % save_and_val_every_n_epoch == 0:
+            model.eval()
+            with torch.no_grad():
+                for i, batch in enumerate(validation_loader):
+                    batch = [x.to(device) for x in batch]
+                    o = model.validation_step(batch, i, e)
+                    specs = o['specs']
+                    pitches = o['pitches']
+                    audios = o['audios']
+                    for s, p, a in zip(specs, pitches, audios):
+                        writer.add_image(s[1], s[0], step, dataformats='HWC')
+                        writer.add_image(p[1], p[0], step, dataformats='HWC')
+                        if a is not None:
+                            writer.add_audio(a[1], a[0], step, sample_rate=24000)
+                save(name, step, e, model, opt, sch, scaler)
+            model.train()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -2,7 +2,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import wandb
 
 from modules.aligner import binarize_attention_parallel, bin_loss, forward_sum_loss, AlignmentEncoder
 from utils import get_mask_from_lengths, average_pitch, regulate_len, plot_pitch_to_numpy, plot_spectrogram_to_numpy
@@ -467,7 +466,7 @@ class MixerTTS(nn.Module):
                     ],
                 ]
 
-                if epoch > 10:
+                if epoch > 100:
                     audios += [
                         [
                             np.expand_dims(griffin_lim(spect[i, :, : spect_len[i]].data.cpu().numpy()), axis=0),
