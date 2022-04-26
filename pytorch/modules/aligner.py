@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
+
 from numba import jit, prange
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from scipy import ndimage
+from scipy.stats import betabinom
 
 
 @jit(nopython=True)
@@ -258,3 +262,36 @@ def forward_sum_loss(attn_logprob, in_lens, out_lens, blank_logprob=-1):
 def bin_loss(hard_attention, soft_attention):
     log_sum = torch.log(torch.clamp(soft_attention[hard_attention == 1], min=1e-12)).sum()
     return -log_sum / hard_attention.sum()
+
+
+class BetaBinomialInterpolator:
+    """
+        This module calculates alignment prior matrices (based on beta-binomial distribution) using cached popular sizes and image interpolation.
+        The implementation is taken from https://github.com/NVIDIA/DeepLearningExamples.
+    """
+
+    def __init__(self, round_mel_len_to=50, round_text_len_to=10, cache_size=500):
+        self.round_mel_len_to = round_mel_len_to
+        self.round_text_len_to = round_text_len_to
+        self.bank = functools.lru_cache(maxsize=cache_size)(beta_binomial_prior_distribution)
+
+    def round(self, val, to):
+        return max(1, int(np.round((val + 1) / to))) * to
+
+    def __call__(self, w, h):
+        bw = self.round(w, to=self.round_mel_len_to)
+        bh = self.round(h, to=self.round_text_len_to)
+        ret = ndimage.zoom(self.bank(bw, bh).T, zoom=(w / bw, h / bh), order=1)
+        assert ret.shape[0] == w, ret.shape
+        assert ret.shape[1] == h, ret.shape
+        return ret
+
+
+def beta_binomial_prior_distribution(phoneme_count, mel_count, scaling_factor=1.0):
+    x = np.arange(0, phoneme_count)
+    mel_text_probs = []
+    for i in range(1, mel_count + 1):
+        a, b = scaling_factor * i, scaling_factor * (mel_count + 1 - i)
+        mel_i_prob = betabinom(phoneme_count, a, b).pmf(x)
+        mel_text_probs.append(mel_i_prob)
+    return np.array(mel_text_probs)

@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from modules.aligner import binarize_attention_parallel, bin_loss, forward_sum_loss, AlignmentEncoder
-from utils import get_mask_from_lengths, average_pitch, regulate_len, plot_pitch_to_numpy, plot_spectrogram_to_numpy
+from utils import get_mask_from_lengths, average_pitch, regulate_len, plot_alignment_to_numpy, plot_pitch_to_numpy, plot_spectrogram_to_numpy
 from utils.audio import griffin_lim
 
 
@@ -305,7 +305,7 @@ class MixerTTS(nn.Module):
 
         # Add bin loss when current_epoch >= bin_start_epoch
         if not self.add_bin_loss and epoch >= self.bin_loss_start_epoch:
-            print(f"Using hard attentions after epoch: {self.current_epoch}")
+            print(f"Using hard attentions after epoch: {epoch}")
             self.add_bin_loss = True
 
         #if self.add_bin_loss:
@@ -313,7 +313,7 @@ class MixerTTS(nn.Module):
 
     def training_step(self, batch, batch_idx):
         attn_prior = None
-        spect, spect_len, text, text_len, pitch = batch
+        spect, spect_len, text, text_len, pitch, attn_prior = batch
 
         # pitch normalization
         # zero_pitch_idx = pitch == 0
@@ -359,7 +359,7 @@ class MixerTTS(nn.Module):
 
     def validation_step(self, batch, batch_idx, epoch):
         attn_prior = None
-        spect, spect_len, text, text_len, pitch = batch
+        spect, spect_len, text, text_len, pitch, attn_prior = batch
 
         # pitch normalization
         # zero_pitch_idx = pitch == 0
@@ -433,6 +433,7 @@ class MixerTTS(nn.Module):
         if batch_idx == 0:
             specs = []
             pitches = []
+            alignments = []
             audios = []
             for i in range(min(3, spect.shape[0])):
                 specs += [
@@ -452,8 +453,7 @@ class MixerTTS(nn.Module):
                             average_pitch(pitch.unsqueeze(1), attn_hard_dur)
                             .squeeze(1)[i, : text_len[i]]
                             .data.cpu()
-                            .numpy(),
-                            ylim_range=[-2.5, 2.5],
+                            .numpy()
                         ),
                         f"gt pitch {i}",
                     ],
@@ -461,9 +461,20 @@ class MixerTTS(nn.Module):
 
                 pitches += [
                     [
-                        plot_pitch_to_numpy(pred_pitch[i, : text_len[i]].data.cpu().numpy(), ylim_range=[-2.5, 2.5]),
+                        plot_pitch_to_numpy(pred_pitch[i, : text_len[i]].data.cpu().numpy()),
                         f"pred pitch {i}",
                     ],
+                ]
+
+                alignments += [
+                    [
+                        plot_alignment_to_numpy(attn_hard[i].data.cpu().numpy().squeeze().T),
+                        f"hard alignment {i}"
+                    ],
+                    [
+                        plot_alignment_to_numpy(attn_soft[i].data.cpu().numpy().squeeze().T),
+                        f"soft alignment {i}"
+                    ]
                 ]
 
                 if epoch > 100:
@@ -483,6 +494,7 @@ class MixerTTS(nn.Module):
 
             ret['specs'] = specs
             ret['pitches'] = pitches
+            ret['alignments'] = alignments
             ret['audios'] = audios
 
         return ret

@@ -5,9 +5,10 @@ import string
 from g2pk import G2p
 import numpy as np
 
+from modules.aligner import beta_binomial_prior_distribution
 from utils.audio import load_audio, mel_spectrogram, f0
 
-def main(transcript, strip_o, min_length=20):
+def main(transcript, strip_o, min_length):
     g2p = G2p()
     phonemes = set()
     trans = str.maketrans('','',string.punctuation)
@@ -31,9 +32,13 @@ def main(transcript, strip_o, min_length=20):
                 wav = load_audio(path)
                 mel = mel_spectrogram(wav, 24000)
                 f0s = f0(wav)
+
+                mel_len = mel.shape[-1]
+                align_prior_matrix = beta_binomial_prior_distribution(len(processed), mel_len)
+
                 path = f"{path}.npz"
-                o.write(f"{path}|{processed}")
-                np.savez(path, mel=mel, f0=f0s)
+                o.write(f"{path}|{processed}\n")
+                np.savez(path, mel=mel, f0=f0s, align_prior_matrix=align_prior_matrix)
     print(phonemes)
 
 
@@ -41,6 +46,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('transcript', type=str)
     parser.add_argument('--strip_o', action='store_true')
-    parser.add_argument('--min_length', type=int)
+    parser.add_argument('--min_length', type=int, default=20)
     args = parser.parse_args()
     main(args.transcript, args.strip_o, args.min_length)

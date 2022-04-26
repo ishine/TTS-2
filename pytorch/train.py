@@ -112,12 +112,14 @@ def main(config, checkpoint):
                     o = model.validation_step(batch, i, e)
                     specs = o['specs']
                     pitches = o['pitches']
+                    alignments = o['alignments']
                     audios = o['audios']
-                    for s, p, a in zip(specs, pitches, audios):
+                    for s, p, a1, a2 in zip(specs, pitches, alignments, audios):
                         writer.add_image(s[1], s[0], step, dataformats='HWC')
                         writer.add_image(p[1], p[0], step, dataformats='HWC')
-                        if a is not None:
-                            writer.add_audio(a[1], a[0], step, sample_rate=24000)
+                        writer.add_image(a1[1], a1[0], step, dataformats='HWC')
+                        if a2 is not None:
+                            writer.add_audio(a2[1], a2[0], step, sample_rate=24000)
                 save(name, step, e, model, opt, sch, scaler)
             model.train()
 

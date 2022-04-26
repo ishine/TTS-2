@@ -13,19 +13,22 @@ def collate_fn(batch):
     mel = []
     mel_length = []
     f0 = []
+    
+    align_prior_matrices = torch.zeros(len(batch), max([sample['align_prior_matrix'].shape[0] for sample in batch]), max([sample['align_prior_matrix'].shape[1] for sample in batch]))
 
-    for sample in batch:
+    for i, sample in enumerate(batch):
         text.append(sample['text'])
         text_length.append(sample['text_length'])
         mel.append(sample['mel'].transpose(0, 1))
         mel_length.append(sample['mel_length'])
         f0.append(sample['f0'])
+        align_prior_matrices[i, : sample['align_prior_matrix'].shape[0], : sample['align_prior_matrix'].shape[1]] = sample['align_prior_matrix']
 
     text = pad_sequence(text, batch_first=True)
     mel = pad_sequence(mel, batch_first=True).transpose(1, 2)
     f0 = pad_sequence(f0, batch_first=True)
 
-    return mel, torch.tensor(mel_length), text, torch.tensor(text_length), f0
+    return mel, torch.tensor(mel_length), text, torch.tensor(text_length), f0, align_prior_matrices
 
 
 class UniformLengthBatchingSampler(Sampler):
@@ -62,10 +65,10 @@ class TTSDataset(Dataset):
                 data = np.load(line[0])
                 mel = torch.tensor(data['mel'])
                 log_f0s = torch.tensor(log_f0(data['f0']))
+                align_prior_matrix = torch.tensor(data['align_prior_matrix'])
                 text_length = len(text)
                 mel_length = mel.shape[1]
-                f0_length = len(log_f0s)
-                data = {'text': text, 'text_length': text_length, 'mel': mel, 'mel_length': mel_length, 'f0': log_f0s, 'f0_length': f0_length}
+                data = {'text': text, 'text_length': text_length, 'mel': mel, 'mel_length': mel_length, 'f0': log_f0s, 'align_prior_matrix': align_prior_matrix}
                 self.walker.append(data)
                 
     def __getitem__(self, n):
