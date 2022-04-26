@@ -1,6 +1,6 @@
 name: MixerTTS_kss
-transcript: data/kss/train_transcript.txt
-val_transcript: data/kss/val_transcript.txt
+transcript: data/kss/train_transcript_eos.txt
+val_transcript: data/kss/val_transcript_eos.txt
 
 sample_rate: 24000
 n_fft: 1024
@@ -9,8 +9,8 @@ win_size: 1024
 fmin: 0
 fmax: 12000
 
-phonemes: _ ᄀᄁᄂᄃᄄᄅᄆᄇᄈᄉᄊᄌᄍᄎᄏᄐᄑ하ᅣᅥᅦᅧᅨᅩᅪᅬᅭᅮᅯᅱᅲᅳᅴᅵᆨᆫᆮᆯᆷᆸᆼ
-num_embeddings: 44
+phonemes: _ ᄀᄁᄂᄃᄄᄅᄆᄇᄈᄉᄊᄌᄍᄎᄏᄐᄑ하ᅣᅥᅦᅧᅨᅩᅪᅬᅭᅮᅯᅱᅲᅳᅴᅵᆨᆫᆮᆯᆷᆸᆼ.
+num_embeddings: 45
 embedding_dim: 384
 encoder_kernels: [11, 13, 15, 17, 19, 21]
 decoder_kernels: [15, 17, 19, 21, 23, 25, 27, 29, 31]

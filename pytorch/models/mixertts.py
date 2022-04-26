@@ -46,7 +46,7 @@ class MixerTTSBlock(nn.Module):
         self.norm1 = nn.LayerNorm(features)
         self.mix1 = TimeMixBlock(features, kernel_size, dropout)
         self.norm2 = nn.LayerNorm(features)
-        self.mix2 = ChannelMixBlock(features, kernel_size, dropout)
+        self.mix2 = ChannelMixBlock(features, 4, dropout)
 
     def forward(self, x, mask):
         o = self.norm1(x)
