@@ -1,0 +1,5 @@
+librosa
+pyworld
+pysptk
+pyreaper
+matplotlib
