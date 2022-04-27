@@ -3,3 +3,4 @@ pyworld
 pysptk
 pyreaper
 matplotlib
+einops
