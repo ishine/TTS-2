@@ -3,6 +3,7 @@ from pathlib import Path
 import string
 
 from g2pk import G2p
+import librosa
 import numpy as np
 
 from modules.aligner import beta_binomial_prior_distribution
@@ -30,6 +31,7 @@ def main(transcript, strip_o, min_length):
             if len(processed) >= min_length:
                 path = f"{root}/{path}"
                 wav = load_audio(path)
+                wav = librosa.effects.trim(wav, top_db=30, frame_length=1024, hop_length=256)[0]
                 mel = mel_spectrogram(wav, 24000)
                 f0s = f0(wav)
 
