@@ -311,7 +311,7 @@ class MixerTTS(nn.Module):
         #if self.add_bin_loss:
         #    self.bin_loss_scale = min((epoch - bin_loss_start_epoch) / self.bin_loss_warmup_epochs, 1.0)
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx, step, writer):
         attn_prior = None
         spect, spect_len, text, text_len, pitch, attn_prior = batch
 
@@ -355,9 +355,12 @@ class MixerTTS(nn.Module):
             'train_bin_loss': torch.tensor(1.0).to(durs_loss.device) if bin_loss is None else bin_loss,
         }
 
-        return {'loss': loss, 'progress_bar': {k: v.detach() for k, v in train_log.items()}, 'log': train_log}
+        for k, v in train_log.items():
+            writer.add_scalar(k, v.detach(), step)
 
-    def validation_step(self, batch, batch_idx, epoch):
+        return loss
+
+    def validation_step(self, batch, batch_idx, epoch, step, writer):
         attn_prior = None
         spect, spect_len, text, text_len, pitch, attn_prior = batch
 
@@ -427,77 +430,24 @@ class MixerTTS(nn.Module):
             'val_bin_loss': torch.tensor(1.0).to(durs_loss.device) if bin_loss is None else bin_loss,
         }
 
-        ret = {}
-        ret['log'] = val_log
-
         if batch_idx == 0:
-            specs = []
-            pitches = []
-            alignments = []
-            audios = []
             for i in range(min(3, spect.shape[0])):
-                specs += [
-                    [
-                        plot_spectrogram_to_numpy(spect[i, :, : spect_len[i]].data.cpu().numpy()),
-                        f"gt mel {i}",
-                    ],
-                    [
-                        plot_spectrogram_to_numpy(pred_spect.transpose(1, 2)[i, :, : spect_len[i]].data.cpu().numpy()),
-                        f"pred mel {i}",
-                    ],
-                ]
-
-                pitches += [
-                    [
-                        plot_pitch_to_numpy(
-                            average_pitch(pitch.unsqueeze(1), attn_hard_dur)
-                            .squeeze(1)[i, : text_len[i]]
-                            .data.cpu()
-                            .numpy()
-                        ),
-                        f"gt pitch {i}",
-                    ],
-                ]
-
-                pitches += [
-                    [
-                        plot_pitch_to_numpy(pred_pitch[i, : text_len[i]].data.cpu().numpy()),
-                        f"pred pitch {i}",
-                    ],
-                ]
-
-                alignments += [
-                    [
-                        plot_alignment_to_numpy(attn_hard[i].data.cpu().numpy().squeeze().T),
-                        f"hard alignment {i}"
-                    ],
-                    [
-                        plot_alignment_to_numpy(attn_soft[i].data.cpu().numpy().squeeze().T),
-                        f"soft alignment {i}"
-                    ]
-                ]
-
+                writer.add_image(f"gt mel {i}", plot_spectrogram_to_numpy(spect[i, :, : spect_len[i]].data.cpu().numpy()), step, dataformats='HWC')
+                writer.add_image(f"pred mel {i}", plot_spectrogram_to_numpy(pred_spect.transpose(1, 2)[i, :, : spect_len[i]].data.cpu().numpy()), step, dataformats='HWC')
+                writer.add_image(f"gt pitch {i}", plot_pitch_to_numpy(
+                                 average_pitch(pitch.unsqueeze(1), attn_hard_dur)
+                                 .squeeze(1)[i, : text_len[i]]
+                                 .data.cpu()
+                                 .numpy()
+                                ), step, dataformats='HWC')
+                writer.add_image(f"pred pitch {i}", plot_pitch_to_numpy(pred_pitch[i, : text_len[i]].data.cpu().numpy()), step, dataformats='HWC')
+                writer.add_image(f"hard alignment {i}", plot_alignment_to_numpy(attn_hard[i].data.cpu().numpy().squeeze().T), step, dataformats='HWC')
+                writer.add_image(f"sft alignment {i}", plot_alignment_to_numpy(attn_soft[i].data.cpu().numpy().squeeze().T), step, dataformats='HWC')
                 if epoch > 100:
-                    audios += [
-                        [
-                            np.expand_dims(griffin_lim(spect[i, :, : spect_len[i]].data.cpu().numpy()), axis=0),
-                            f"gt audio {i}"
-                        ],
-                        [
-                            np.expand_dims(griffin_lim(pred_spect.transpose(1, 2)[i, :, : spect_len[i]].data.cpu().numpy()), axis=0),
-                            f"pred audio {i}"
-                        ],
-                    ]
-                else:
-                    audios += [None, None]
-                
+                    writer.add_audio(f"gt audio {i}", np.expand_dims(griffin_lim(spect[i, :, : spect_len[i]].data.cpu().numpy()), axis=0), step, sample_rate=24000)
+                    writer.add_audio(f"pred audio {i}", np.expand_dims(griffin_lim(pred_spect.transpose(1, 2)[i, :, : spect_len[i]].data.cpu().numpy()), axis=0), step, sample_rate=24000)
 
-            ret['specs'] = specs
-            ret['pitches'] = pitches
-            ret['alignments'] = alignments
-            ret['audios'] = audios
-
-        return ret
+        return loss
 
     """
     def generate_spectrogram(

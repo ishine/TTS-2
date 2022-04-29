@@ -9,6 +9,8 @@ win_size: 1024
 fmin: 0
 fmax: 12000
 
+model: MixerTTS
+
 phonemes: _ ᄀᄁᄂᄃᄄᄅᄆᄇᄈᄉᄊᄌᄍᄎᄏᄐᄑ하ᅣᅥᅦᅧᅨᅩᅪᅬᅭᅮᅯᅱᅲᅳᅴᅵᆨᆫᆮᆯᆷᆸᆼ
 num_embeddings: 44
 embedding_dim: 384
@@ -29,3 +31,10 @@ betas: [0.9, 0.98]
 weight_decay: 1e-6
 fp_16: false
 num_workers: 4
+scheduler:
+  type: NoamAnnealing
+  args:
+    d_model: 1
+    warmup_steps: 1000
+    min_lr: 0.0001
+    max_steps: 9999999999

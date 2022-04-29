@@ -12,3 +12,10 @@ def text_to_sequence(text, symbol_to_id):
 
 def sequence_to_text(sequence, id_to_symbol):
     return "".join([id_to_symbol[s] for s in sequence])
+
+
+def intersperse(lst, item):
+    # Adds blank symbol
+    result = [item] * (len(lst) * 2 + 1)
+    result[1::2] = lst
+    return result

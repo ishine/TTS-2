@@ -9,8 +9,9 @@ from torch.utils.tensorboard import SummaryWriter
 import yaml
 
 from dataset import TTSDataset, UniformLengthBatchingSampler, collate_fn
-from models.mixertts import MixerTTS
-from optim import NoamAnnealing, Lookahead, RAdam
+import models
+import optim
+from optim import Lookahead, RAdam
 
 
 def save(name, step, epoch, model, opt, sch, scaler=None, size=100):
@@ -35,8 +36,8 @@ def main(config, checkpoint):
     with open(config, encoding='utf8') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
-    training_data = TTSDataset(config['transcript'], config['phonemes'])
-    validation_data = TTSDataset(config['val_transcript'], config['phonemes'])
+    training_data = TTSDataset(config['transcript'], config['phonemes'], config['add_blank'])
+    validation_data = TTSDataset(config['val_transcript'], config['phonemes'], config['add_blank'])
 
     batch_size = config['batch_size']
     num_workers = config['num_workers']
@@ -47,13 +48,19 @@ def main(config, checkpoint):
     validation_loader = DataLoader(validation_data, batch_size=batch_size, collate_fn=collate_fn, num_workers=num_workers, pin_memory=True, shuffle=False, drop_last=False)
 
     name = config['name']
-    model = MixerTTS(config).to(device)
+    model = getattr(models, config['model'])(config).to(device)
 
     lr = float(config['lr'])
     betas = config['betas']
     weight_decay = float(config['weight_decay'])
     opt = Lookahead(RAdam(model.parameters(), lr=lr, betas=betas, weight_decay=weight_decay))
-    sch = NoamAnnealing(opt, d_model=1, warmup_steps=1000, max_steps=9999999999, min_lr=1e-4)
+
+
+    sch = torch.optim.lr_scheduler.LambdaLR(opt, lambda epoch: 1)
+    scheduler = config.get('scheduler')
+    if scheduler is not None:
+        sch = getattr(optim, scheduler['type'])(opt, **scheduler['args'])
+
     scaler = None
     if config['fp_16']:
         print("Using mixed precision")
@@ -81,12 +88,8 @@ def main(config, checkpoint):
             batch = [x.to(device) for x in batch]
             opt.zero_grad()
             with autocast(enabled=config['fp_16']):
-                o = model.training_step(batch, i)
-            loss = o['loss']
-            progress_bar = o['progress_bar']
-            for k, v in progress_bar.items():
-                writer.add_scalar(k, v, step)
-                writer.add_scalar('lr', sch.get_last_lr()[0], step)
+                loss = model.training_step(batch, i, step, writer)
+                writer.add_scalar("lr", sch.get_last_lr()[0], step)
             if scaler is not None:
                 scaler.scale(loss).backward()
                 scaler.unscale_(opt)
@@ -109,19 +112,10 @@ def main(config, checkpoint):
             with torch.no_grad():
                 for i, batch in enumerate(validation_loader):
                     batch = [x.to(device) for x in batch]
-                    o = model.validation_step(batch, i, e)
-                    specs = o['specs']
-                    pitches = o['pitches']
-                    alignments = o['alignments']
-                    audios = o['audios']
-                    for s, p, a1, a2 in zip(specs, pitches, alignments, audios):
-                        writer.add_image(s[1], s[0], step, dataformats='HWC')
-                        writer.add_image(p[1], p[0], step, dataformats='HWC')
-                        writer.add_image(a1[1], a1[0], step, dataformats='HWC')
-                        if a2 is not None:
-                            writer.add_audio(a2[1], a2[0], step, sample_rate=24000)
+                    model.validation_step(batch, i, e, step, writer)
                 save(name, step, e, model, opt, sch, scaler)
             model.train()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

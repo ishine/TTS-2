@@ -9,43 +9,54 @@
 import math
 import random
 
+import numpy as np
 import torch
 import torch.nn as nn
 
-from . import monotonic_align
+from monotonic_align import maximum_path
 from .text_encoder import TextEncoder
-from model.diffusion import Diffusion
-from .utils import sequence_mask, generate_path, duration_loss, fix_len_compatibility
+#from .unet import Diffusion
+from .wavenet import Decoder
+from .util import sequence_mask, generate_path, duration_loss, fix_len_compatibility
+from utils import plot_alignment_to_numpy, plot_pitch_to_numpy, plot_spectrogram_to_numpy
+from utils.audio import griffin_lim, mel_denormalize, mel_normalize
 
 
 class GradTTS(nn.Module):
-    def __init__(self, n_vocab, n_spks, spk_emb_dim, n_enc_channels, filter_channels, filter_channels_dp, 
-                 n_heads, n_enc_layers, enc_kernel, enc_dropout, window_size, 
-                 n_feats, dec_dim, beta_min, beta_max, pe_scale):
-        super(GradTTS, self).__init__()
-        self.n_vocab = n_vocab
-        self.n_spks = n_spks
-        self.spk_emb_dim = spk_emb_dim
-        self.n_enc_channels = n_enc_channels
-        self.filter_channels = filter_channels
-        self.filter_channels_dp = filter_channels_dp
-        self.n_heads = n_heads
-        self.n_enc_layers = n_enc_layers
-        self.enc_kernel = enc_kernel
-        self.enc_dropout = enc_dropout
-        self.window_size = window_size
-        self.n_feats = n_feats
-        self.dec_dim = dec_dim
-        self.beta_min = beta_min
-        self.beta_max = beta_max
-        self.pe_scale = pe_scale
+    def __init__(self, config):
+        super().__init__()
+        self.n_vocab = config.get('n_vocab')
+        if config.get('add_blank'):
+            self.n_vocab += 1
+        self.n_spks = config.get('n_spks')
+        self.spk_emb_dim = config.get('spk_emb_dim')
+        self.n_enc_channels = config.get('n_enc_channels')
+        self.filter_channels = config.get('filter_channels')
+        self.filter_channels_dp = config.get('filter_channels_dp')
+        self.n_heads = config.get('n_heads')
+        self.n_enc_layers = config.get('n_enc_layers')
+        self.enc_kernel = config.get('enc_kernel')
+        self.enc_dropout = config.get('enc_dropout')
+        self.window_size = config.get('window_size')
+        self.n_feats = config.get('n_feats')
+        self.beta_min = config.get('beta_min')
+        self.beta_max = config.get('beta_max')
+        self.pe_scale = config.get('pe_scale')
+        self.pitch = config.get('pitch')
+        self.n_layers = config.get('n_layers')
+        self.dec_dim = config.get('dec_dim')
+        self.max_steps = config.get('max_steps')
+        self.loss_fn = nn.L1Loss() if config.get('loss_fn') == 'MAE' else nn.MSELoss()
+        self.mel_min = config.get('mel_min')
+        self.mel_max = config.get('mel_max')
 
-        if n_spks > 1:
-            self.spk_emb = nn.Embedding(n_spks, spk_emb_dim)
-        self.encoder = TextEncoder(n_vocab, n_feats, n_enc_channels, 
-                                   filter_channels, filter_channels_dp, n_heads, 
-                                   n_enc_layers, enc_kernel, enc_dropout, window_size)
-        self.decoder = Diffusion(n_feats, dec_dim, n_spks, spk_emb_dim, beta_min, beta_max, pe_scale)
+        if self.n_spks > 1:
+            self.spk_emb = nn.Embedding(self.n_spks, self.spk_emb_dim)
+        self.encoder = TextEncoder(self.n_vocab, self.n_feats, self.n_enc_channels, 
+                                   self.filter_channels, self.filter_channels_dp, self.n_heads, 
+                                   self.n_enc_layers, self.enc_kernel, self.enc_dropout, self.window_size,
+                                   pitch=self.pitch)
+        self.decoder = Decoder(self.n_feats, self.n_enc_channels, self.n_layers, self.dec_dim, self.max_steps, self.loss_fn)
 
     def relocate_input(self, x: list):
         """
@@ -58,7 +69,8 @@ class GradTTS(nn.Module):
         return x
 
     @torch.no_grad()
-    def forward(self, x, x_lengths, n_timesteps, temperature=1.0, stoc=False, spk=None, length_scale=1.0):
+    def forward(self, x, x_lengths, n_timesteps, temperature=1.0, stoc=False, spk=None, length_scale=1.0,
+                durations=None, pitch=None):
         """
         Generates mel-spectrogram from text. Returns:
             1. encoder outputs
@@ -74,6 +86,10 @@ class GradTTS(nn.Module):
                 Usually, does not provide synthesis improvements.
             length_scale (float, optional): controls speech pace.
                 Increase value to slow down generated speech and vice versa.
+            duration (list[int], optional): list of lenghts of texts.
+                Use this instead of prediction durations.
+            pitch (list[float], optional): list of f0s of texts.
+                Use this instead of predicted pitches.
         """
         x, x_lengths = self.relocate_input([x, x_lengths])
 
@@ -82,7 +98,9 @@ class GradTTS(nn.Module):
             spk = self.spk_emb(spk)
 
         # Get encoder_outputs `mu_x` and log-scaled token durations `logw`
-        mu_x, logw, x_mask = self.encoder(x, x_lengths, spk)
+        mu_x, logw, x_mask, pitch, h = self.encoder(x, x_lengths, spk, pitch)
+        if durations is not None:
+            logw = durations
 
         w = torch.exp(logw) * x_mask
         w_ceil = torch.ceil(w) * length_scale
@@ -96,19 +114,22 @@ class GradTTS(nn.Module):
         attn = generate_path(w_ceil.squeeze(1), attn_mask.squeeze(1)).unsqueeze(1)
 
         # Align encoded text and get mu_y
-        mu_y = torch.matmul(attn.squeeze(1).transpose(1, 2), mu_x.transpose(1, 2))
+        mu_y = torch.matmul(attn.squeeze(1).transpose(1, 2), h.transpose(1, 2))
         mu_y = mu_y.transpose(1, 2)
         encoder_outputs = mu_y[:, :, :y_max_length]
 
         # Sample latent representation from terminal distribution N(mu_y, I)
-        z = mu_y + torch.randn_like(mu_y, device=mu_y.device) / temperature
+        # z = mu_y + torch.randn_like(mu_y, device=mu_y.device) / temperature
+        z = torch.randn(mu_y.shape[0], self.n_feats, mu_y.shape[2], device=mu_y.device) / temperature
         # Generate sample by performing reverse dynamics
         decoder_outputs = self.decoder(z, y_mask, mu_y, n_timesteps, stoc, spk)
         decoder_outputs = decoder_outputs[:, :, :y_max_length]
+        # denormalize mel
+        decoder_outputs = mel_denormalize(decoder_outputs, self.mel_min, self.mel_max)
 
-        return encoder_outputs, decoder_outputs, attn[:, :, :y_max_length]
+        return encoder_outputs, decoder_outputs, attn[:, :, :y_max_length], pitch, y_lengths
 
-    def compute_loss(self, x, x_lengths, y, y_lengths, spk=None, out_size=None):
+    def compute_loss(self, x, x_lengths, y, y_lengths, pitch=None, spk=None, out_size=None):
         """
         Computes 3 losses:
             1. duration loss: loss between predicted token durations and those extracted by Monotinic Alignment Search (MAS).
@@ -123,14 +144,16 @@ class GradTTS(nn.Module):
             out_size (int, optional): length (in mel's sampling rate) of segment to cut, on which decoder will be trained.
                 Should be divisible by 2^{num of UNet downsamplings}. Needed to increase batch size.
         """
-        x, x_lengths, y, y_lengths = self.relocate_input([x, x_lengths, y, y_lengths])
+        # x, x_lengths, y, y_lengths = self.relocate_input([x, x_lengths, y, y_lengths])
 
         if self.n_spks > 1:
             # Get speaker embedding
             spk = self.spk_emb(spk)
         
+        # normalize mel
+        y = mel_normalize(y, self.mel_min, self.mel_max)
         # Get encoder_outputs `mu_x` and log-scaled token durations `logw`
-        mu_x, logw, x_mask = self.encoder(x, x_lengths, spk)
+        mu_x, logw, x_mask, predicted_pitch, h = self.encoder(x, x_lengths, spk, pitch)
         y_max_length = y.shape[-1]
 
         y_mask = sequence_mask(y_lengths, y_max_length).unsqueeze(1).to(x_mask)
@@ -145,7 +168,7 @@ class GradTTS(nn.Module):
             mu_square = torch.sum(factor * (mu_x ** 2), 1).unsqueeze(-1)
             log_prior = y_square - y_mu_double + mu_square + const
 
-            attn = monotonic_align.maximum_path(log_prior, attn_mask.squeeze(1))
+            attn = maximum_path(log_prior, attn_mask.squeeze(1))
             attn = attn.detach()
 
         # Compute loss between predicted log-scaled durations and those obtained from MAS
@@ -178,14 +201,56 @@ class GradTTS(nn.Module):
             y_mask = y_cut_mask
 
         # Align encoded text with mel-spectrogram and get mu_y segment
-        mu_y = torch.matmul(attn.squeeze(1).transpose(1, 2), mu_x.transpose(1, 2))
+        mu_y = torch.matmul(attn.squeeze(1).transpose(1, 2), h.transpose(1, 2))
         mu_y = mu_y.transpose(1, 2)
+        mel_y = torch.matmul(attn.squeeze(1).transpose(1, 2), mu_x.transpose(1, 2))
+        mel_y = mel_y.transpose(1, 2)
 
         # Compute loss of score-based decoder
         diff_loss, xt = self.decoder.compute_loss(y, y_mask, mu_y, spk)
         
         # Compute loss between aligned encoder outputs and mel-spectrogram
-        prior_loss = torch.sum(0.5 * ((y - mu_y) ** 2 + math.log(2 * math.pi)) * y_mask)
+        prior_loss = 0
+        prior_loss = torch.sum(0.5 * ((y - mel_y) ** 2 + math.log(2 * math.pi)) * y_mask)
         prior_loss = prior_loss / (torch.sum(y_mask) * self.n_feats)
+
+        pitch_loss = 0
+        if predicted_pitch:
+            pitch_loss = 0
         
-        return dur_loss, prior_loss, diff_loss
+        return dur_loss, prior_loss, diff_loss, pitch_loss
+
+    def on_train_epoch_start(self, epoch):
+        return
+
+    def training_step(self, batch, batch_idx, step, writer):
+        spect, spect_len, text, text_len, pitch, attn_prior = batch
+        f0 = None
+        if self.pitch:
+            f0 = pitch
+            # should average pitch per phoneme
+        dur_loss, prior_loss, diff_loss, pitch_loss = self.compute_loss(text, text_len, spect, spect_len, f0)
+        writer.add_scalar("Duration loss", dur_loss, step)
+        writer.add_scalar("Diffusion loss", diff_loss, step)
+        if prior_loss != 0:
+            writer.add_scalar("Prior loss", prior_loss, step)
+        if pitch_loss != 0:
+            writer.add_scalar("Pitch loss", pitch_loss, step)
+        loss = dur_loss + prior_loss + diff_loss + pitch_loss
+        return loss
+
+    def validation_step(self, batch, batch_idx, epoch, step, writer):
+        spect, spect_len, text, text_len, pitch, attn_prior = batch
+        f0 = None
+        if self.pitch:
+            f0 = pitch
+        encoder_outputs, decoder_outputs, attn, pitch, y_lengths = self(text, text_len, -1, pitch=f0)
+        if batch_idx == 0:
+            for i in range(min(3, spect.shape[0])):
+                writer.add_image(f"gt mel {i}", plot_spectrogram_to_numpy(spect[i, :, : spect_len[i]].data.cpu().numpy()), step, dataformats='HWC')
+                writer.add_image(f"pred mel {i}", plot_spectrogram_to_numpy(decoder_outputs[i, :, : y_lengths[i]].data.cpu().numpy()), step, dataformats='HWC')
+                writer.add_image(f"alignment {i}", plot_alignment_to_numpy(attn[i].data.cpu().numpy().squeeze().T), step, dataformats='HWC')
+                if epoch > 100:
+                    writer.add_audio(f"gt audio {i}", np.expand_dims(griffin_lim(spect[i, :, : spect_len[i]].data.cpu().numpy()), axis=0), step, sample_rate=24000)
+                    writer.add_audio(f"pred audio {i}", np.expand_dims(griffin_lim(decoder_outputs[i, :, : y_lengths[i]].data.cpu().numpy()), axis=0), step, sample_rate=24000)
+        

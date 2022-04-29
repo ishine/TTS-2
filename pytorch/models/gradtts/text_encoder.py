@@ -5,12 +5,12 @@ import math
 import torch
 import torch.nn as nn
 
-from .utils import sequence_mask, convert_pad_shape
+from .util import sequence_mask, convert_pad_shape
 
 
 class LayerNorm(nn.Module):
     def __init__(self, channels, eps=1e-4):
-        super(LayerNorm, self).__init__()
+        super().__init__()
         self.channels = channels
         self.eps = eps
 
@@ -32,7 +32,7 @@ class LayerNorm(nn.Module):
 class ConvReluNorm(nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, kernel_size, 
                  n_layers, p_dropout):
-        super(ConvReluNorm, self).__init__()
+        super().__init__()
         self.in_channels = in_channels
         self.hidden_channels = hidden_channels
         self.out_channels = out_channels
@@ -66,7 +66,7 @@ class ConvReluNorm(nn.Module):
 
 class DurationPredictor(nn.Module):
     def __init__(self, in_channels, filter_channels, kernel_size, p_dropout):
-        super(DurationPredictor, self).__init__()
+        super().__init__()
         self.in_channels = in_channels
         self.filter_channels = filter_channels
         self.p_dropout = p_dropout
@@ -97,7 +97,7 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, channels, out_channels, n_heads, window_size=None, 
                  heads_share=True, p_dropout=0.0, proximal_bias=False, 
                  proximal_init=False):
-        super(MultiHeadAttention, self).__init__()
+        super().__init__()
         assert channels % n_heads == 0
 
         self.channels = channels
@@ -218,7 +218,7 @@ class MultiHeadAttention(nn.Module):
 class FFN(nn.Module):
     def __init__(self, in_channels, out_channels, filter_channels, kernel_size, 
                  p_dropout=0.0):
-        super(FFN, self).__init__()
+        super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.filter_channels = filter_channels
@@ -242,7 +242,7 @@ class FFN(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, hidden_channels, filter_channels, n_heads, n_layers, 
                  kernel_size=1, p_dropout=0.0, window_size=None, **kwargs):
-        super(Encoder, self).__init__()
+        super().__init__()
         self.hidden_channels = hidden_channels
         self.filter_channels = filter_channels
         self.n_heads = n_heads
@@ -281,8 +281,9 @@ class Encoder(nn.Module):
 class TextEncoder(nn.Module):
     def __init__(self, n_vocab, n_feats, n_channels, filter_channels, 
                  filter_channels_dp, n_heads, n_layers, kernel_size, 
-                 p_dropout, window_size=None, spk_emb_dim=64, n_spks=1):
-        super(TextEncoder, self).__init__()
+                 p_dropout, window_size=None, spk_emb_dim=64, n_spks=1,
+                 pitch=False):
+        super().__init__()
         self.n_vocab = n_vocab
         self.n_feats = n_feats
         self.n_channels = n_channels
@@ -309,7 +310,13 @@ class TextEncoder(nn.Module):
         self.proj_w = DurationPredictor(n_channels + (spk_emb_dim if n_spks > 1 else 0), filter_channels_dp, 
                                         kernel_size, p_dropout)
 
-    def forward(self, x, x_lengths, spk=None):
+        self.pitch = pitch
+        if pitch:
+            self.pitch_predictor = DurationPredictor(n_channels + (spk_emb_dim if n_spks > 1 else 0), filter_channels_dp, 
+                                            kernel_size, p_dropout)
+            self.pitch_embedding = nn.Conv1d(1, n_channels + (spk_emb_dim if n_spks > 1 else 0), 3, padding=1)
+
+    def forward(self, x, x_lengths, spk=None, pitch=None):
         x = self.emb(x) * math.sqrt(self.n_channels)
         x = torch.transpose(x, 1, -1)
         x_mask = torch.unsqueeze(sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
@@ -318,9 +325,16 @@ class TextEncoder(nn.Module):
         if self.n_spks > 1:
             x = torch.cat([x, spk.unsqueeze(-1).repeat(1, 1, x.shape[-1])], dim=1)
         x = self.encoder(x, x_mask)
+
+        if self.pitch:
+            pitch = pitch if pitch is not None else self.pitch_predictor(x, x_mask)
+            pitch = pitch * x_mask
+            pitch_embedding = self.pitch_embedding(pitch) * x_mask
+            x = x + pitch_embedding
+
         mu = self.proj_m(x) * x_mask
 
         x_dp = torch.detach(x)
         logw = self.proj_w(x_dp, x_mask)
 
-        return mu, logw, x_mask
+        return mu, logw, x_mask, pitch, x # encoder output, duration, mask, pitch, encoder hidden output

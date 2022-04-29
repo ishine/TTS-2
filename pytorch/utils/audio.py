@@ -102,3 +102,11 @@ def mel_spectrogram(wav, sr, n_fft=1024, num_mels=80, win_size=1024, fmin=0, fma
         spec = torch.clamp(spec, min=1e-5)
 
     return spec.squeeze(0).cpu().numpy()
+
+
+def mel_normalize(mel, m_min, m_max):
+    return 2 * (mel - m_min)/(m_max-m_min) - 1
+
+
+def mel_denormalize(mel_norm, m_min, m_max):
+    return (m_max - m_min) * ((mel_norm)+1)/2 + m_min
