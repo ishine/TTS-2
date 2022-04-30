@@ -14,10 +14,13 @@ mel_max: 1.7300607
 model: GradTTS
 
 phonemes: _ ᄀᄁᄂᄃᄄᄅᄆᄇᄈᄉᄊᄌᄍᄎᄏᄐᄑ하ᅣᅥᅦᅧᅨᅩᅪᅬᅭᅮᅯᅱᅲᅳᅴᅵᆨᆫᆮᆯᆷᆸᆼ
-add_blank: true
+add_blank: false
 n_spks: 1
 n_vocab: 44
 n_feats: 80
+
+use_prior_loss: true
+standardize_pitch: false
 
 # encoder parameters
 n_enc_channels: 192
@@ -28,7 +31,7 @@ enc_kernel: 3
 enc_dropout: 0.1
 n_heads: 2
 window_size: 4
-pitch: false
+pitch: true
 
 # decoder
 n_layers: 20
@@ -37,7 +40,7 @@ max_steps: 100
 loss_fn: MAE
 
 batch_size: 32
-max_epoch: 2000
+max_epoch: 1000
 save_and_val_every_n_epoch: 20
 
 lr: 2e-4
