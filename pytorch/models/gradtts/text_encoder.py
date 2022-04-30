@@ -6,8 +6,6 @@ import torch
 import torch.nn as nn
 
 from .util import sequence_mask, convert_pad_shape
-from utils import average_pitch
-from modules.aligner import binarize_attention_parallel, AlignmentEncoder
 
 
 class LayerNorm(nn.Module):
@@ -283,8 +281,7 @@ class Encoder(nn.Module):
 class TextEncoder(nn.Module):
     def __init__(self, n_vocab, n_feats, n_channels, filter_channels, 
                  filter_channels_dp, n_heads, n_layers, kernel_size, 
-                 p_dropout, window_size=None, spk_emb_dim=64, n_spks=1,
-                 pitch=False):
+                 p_dropout, window_size=None, spk_emb_dim=64, n_spks=1):
         super().__init__()
         self.n_vocab = n_vocab
         self.n_feats = n_feats
@@ -311,27 +308,9 @@ class TextEncoder(nn.Module):
         self.proj_m = nn.Conv1d(n_channels + (spk_emb_dim if n_spks > 1 else 0), n_feats, 1)
         self.proj_w = DurationPredictor(n_channels + (spk_emb_dim if n_spks > 1 else 0), filter_channels_dp, 
                                         kernel_size, p_dropout)
-
-        self.pitch = pitch
-        if pitch:
-            self.pitch_predictor = DurationPredictor(n_channels + (spk_emb_dim if n_spks > 1 else 0), filter_channels_dp, 
-                                            kernel_size, p_dropout)
-            self.pitch_embedding = nn.Conv1d(1, n_channels + (spk_emb_dim if n_spks > 1 else 0), 3, padding=1)
-            self.aligner = AlignmentEncoder(n_text_channels=n_channels + (spk_emb_dim if n_spks > 1 else 0))
-
-
-    def align(self, text_emb, text_len, text_mask, spect, spect_len, attn_prior):
-        attn_soft, attn_logprob = self.aligner(
-            # B x C x L, B x C x L, B x L x 1, B x mel_len x text_len
-            spect, text_emb, mask=(text_mask.transpose(1, 2)) == 0, attn_prior=attn_prior,
-        )
-        attn_hard = binarize_attention_parallel(attn_soft, text_len, spect_len)
-        attn_hard_dur = attn_hard.sum(2)[:, 0, :]
-        assert torch.all(torch.eq(attn_hard_dur.sum(dim=1), spect_len))
-        return attn_soft, attn_logprob, attn_hard, attn_hard_dur
     
 
-    def forward(self, x, x_lengths, y=None, y_lengths=None, attn_prior=None, pitch=None, spk=None):
+    def forward(self, x, x_lengths, spk=None):
         x_emb = self.emb(x) * math.sqrt(self.n_channels) # B x L x C
         x_emb = torch.transpose(x_emb, 1, -1) # B x C x L
         x_mask = torch.unsqueeze(sequence_mask(x_lengths, x_emb.size(2)), 1).to(x_emb.dtype) # B x 1 x L
@@ -340,31 +319,10 @@ class TextEncoder(nn.Module):
         if self.n_spks > 1:
             x = torch.cat([x, spk.unsqueeze(-1).repeat(1, 1, x.shape[-1])], dim=1)
         x = self.encoder(x, x_mask)
-
-        pitch_predicted = None
-        attn_soft, attn_logprob, attn_hard, attn_hard_dur = None, None, None, None
-        if self.pitch:
-            if y is not None:
-                attn_soft, attn_logprob, attn_hard, attn_hard_dur = self.align(
-                    x_emb, x_lengths, x_mask, y, y_lengths, attn_prior
-                )
-            if not self.training:
-                if pitch is not None: # Use gt pitch (i.e. singing)
-                    pitch = average_pitch(pitch.unsqueeze(1), attn_hard_dur)
-                    pitch_emb = self.pitch_embedding(pitch)
-                else: # Predict pitch for inference
-                    pitch_predicted = self.pitch_predictor(x, x_mask)
-                    pitch_emb = self.pitch_embedding(pitch_predicted)
-            else: # Predict pitch for computing loss, use gt pitch for embedding
-                pitch_predicted = self.pitch_predictor(x, x_mask)
-                pitch = average_pitch(pitch.unsqueeze(1), attn_hard_dur)
-                pitch_emb = self.pitch_embedding(pitch)
-            pitch_emb = pitch_emb * x_mask
-            x = x + pitch_emb
             
         mu = self.proj_m(x) * x_mask
 
         x_dp = torch.detach(x)
         logw = self.proj_w(x_dp, x_mask)
 
-        return mu, logw, x_mask, pitch_predicted, x, attn_soft, attn_logprob, attn_hard, attn_hard_dur # encoder output, duration, mask, pitch, encoder hidden output, embedding
+        return mu, logw, x_mask, x # encoder output, duration, mask, hidden
