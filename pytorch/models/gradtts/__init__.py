@@ -19,7 +19,7 @@ from .text_encoder import TextEncoder, DurationPredictor
 from .wavenet import Decoder
 from .util import sequence_mask, generate_path, duration_loss
 from utils import plot_alignment_to_numpy, plot_pitch_to_numpy, plot_spectrogram_to_numpy
-from utils.audio import griffin_lim, mel_denormalize, mel_normalize
+from utils.audio import griffin_lim, mel_denormalize, mel_normalize, interpolate
 
 
 def average_pitch(pitch, durs):
@@ -70,6 +70,7 @@ class GradTTS(nn.Module):
         self.mel_min = config.get('mel_min')
         self.mel_max = config.get('mel_max')
         self.pitch = config.get('pitch')
+        self.pitch_loss_scale = config.get('pitch_loss_scale')
 
         if self.n_spks > 1:
             self.spk_emb = nn.Embedding(self.n_spks, self.spk_emb_dim)
@@ -142,6 +143,9 @@ class GradTTS(nn.Module):
                 pitch = self.pitch_predictor(h, x_mask) # B x 1 x_length
             pitch_emb = self.pitch_embedding(pitch) * x_mask
             h = h + pitch_emb
+            pitch = torch.matmul(attn.squeeze(1).transpose(1, 2), pitch.transpose(1, 2)) # B x L x 1
+            pitch = pitch.squeeze(2)
+            pitch = pitch[:, :y_max_length]
 
         # Align encoded text and get mu_y
         mu_y = torch.matmul(attn.squeeze(1).transpose(1, 2), h.transpose(1, 2))
@@ -232,7 +236,7 @@ class GradTTS(nn.Module):
         
         # pitch
         if self.pitch:
-            pitch_predicted = self.pitch_predictor(h, x_mask)
+            pitch_predicted = self.pitch_predictor(torch.detach(h), x_mask)
             pitch = average_pitch(pitch.unsqueeze(1), attn)
             pitch_emb = self.pitch_embedding(pitch) * x_mask
             h = h + pitch_emb
@@ -263,13 +267,16 @@ class GradTTS(nn.Module):
     def training_step(self, batch, batch_idx, step, writer):
         spect, spect_len, text, text_len, pitch, attn_prior = batch
         dur_loss, prior_loss, diff_loss, pitch_loss = self.compute_loss(text, text_len, spect, spect_len, pitch=pitch)
+        loss = dur_loss + diff_loss
         writer.add_scalar("Duration loss", dur_loss, step)
         writer.add_scalar("Diffusion loss", diff_loss, step)
         if pitch_loss != 0:
+            pitch_loss = self.pitch_loss_scale * pitch_loss
+            loss += pitch_loss
             writer.add_scalar("Pitch loss", pitch_loss, step)
         if prior_loss != 0:
+            loss += prior_loss
             writer.add_scalar("Prior loss", prior_loss, step)
-        loss = dur_loss + prior_loss + diff_loss + pitch_loss
         return loss
 
     def validation_step(self, batch, batch_idx, epoch, step, writer):
@@ -286,4 +293,16 @@ class GradTTS(nn.Module):
                 if self.pitch:
                     writer.add_image(f"gt pitch {i}", plot_pitch_to_numpy(pitch[i, : spect_len[i]].data.cpu().numpy()), step, dataformats='HWC')
                     writer.add_image(f"pred pitch {i}", plot_pitch_to_numpy(predicted_pitch[i, : y_lengths[i]].data.cpu().numpy()), step, dataformats='HWC')
+
+    def inference(self, text, text_len, pitch=None, hop_size=240):
+        # 1 x L, 1, 1 x L
+        encoder_outputs, mel, attn, predicted_pitch, y_lengths = self(text, text_len, -1, pitch=None)
+        mel = mel.squeeze().cpu().numpy()
+        if predicted_pitch is not None:
+            predicted_pitch = torch.exp(predicted_pitch).squeeze().cpu().numpy()
+            max_length = min([mel.shape[1], len(predicted_pitch)])
+            wav_length = max_length * hop_size
+            interpolated = interpolate(predicted_pitch, wav_length, hop_size=hop_size)
+            return mel, interpolated
+        return mel, None
         

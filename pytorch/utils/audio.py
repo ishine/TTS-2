@@ -110,3 +110,9 @@ def mel_normalize(mel, m_min, m_max):
 
 def mel_denormalize(mel_norm, m_min, m_max):
     return (m_max - m_min) * ((mel_norm)+1)/2 + m_min
+
+
+def interpolate(sequence, wav_length, hop_size=240):
+    length = len(sequence)
+    data_points = np.arange(length*hop_size, step=hop_size)
+    return np.interp(np.arange(wav_length), data_points, sequence)
