@@ -252,7 +252,6 @@ class GradTTS(nn.Module):
         diff_loss, xt = self.decoder.compute_loss(y, y_mask, mu_y, spk)
         
         # Compute loss between aligned encoder outputs and mel-spectrogram
-        prior_loss = 0
         prior_loss = torch.sum(0.5 * ((y - mel_y) ** 2 + math.log(2 * math.pi)) * y_mask)
         prior_loss = prior_loss / (torch.sum(y_mask) * self.n_feats)
 
@@ -268,16 +267,13 @@ class GradTTS(nn.Module):
     def training_step(self, batch, batch_idx, step, writer):
         spect, spect_len, text, text_len, pitch, attn_prior = batch
         dur_loss, prior_loss, diff_loss, pitch_loss = self.compute_loss(text, text_len, spect, spect_len, pitch=pitch)
-        loss = dur_loss + diff_loss
+        loss = dur_loss + diff_loss + prior_loss
         writer.add_scalar("Duration loss", dur_loss, step)
         writer.add_scalar("Diffusion loss", diff_loss, step)
         if pitch_loss != 0:
             pitch_loss = self.pitch_loss_scale * pitch_loss
             loss += pitch_loss
             writer.add_scalar("Pitch loss", pitch_loss, step)
-        if prior_loss != 0:
-            loss += prior_loss
-            writer.add_scalar("Prior loss", prior_loss, step)
         return loss
 
     def validation_step(self, batch, batch_idx, epoch, step, writer):
