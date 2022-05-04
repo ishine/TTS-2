@@ -84,7 +84,7 @@ def main(config, checkpoint):
     writer = SummaryWriter('runs')
 
     max_epoch = config['max_epoch']
-    for e in range(epoch, max_epoch+1):
+    for e in range(epoch+1, max_epoch+1):
         model.on_train_epoch_start(e)
         for i, batch in enumerate(training_loader):
             batch = [x.to(device) for x in batch]
@@ -115,7 +115,7 @@ def main(config, checkpoint):
                 for i, batch in enumerate(validation_loader):
                     batch = [x.to(device) for x in batch]
                     model.validation_step(batch, i, e, step, writer)
-                save(name, step, e, model, opt, sch, scaler)
+            save(name, step, e, model, opt, sch, scaler)
             model.train()
 
 
