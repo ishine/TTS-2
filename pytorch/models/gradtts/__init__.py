@@ -270,6 +270,7 @@ class GradTTS(nn.Module):
         loss = dur_loss + diff_loss + prior_loss
         writer.add_scalar("Duration loss", dur_loss, step)
         writer.add_scalar("Diffusion loss", diff_loss, step)
+        writer.add_scalar("Prior loss", prior_loss, step)
         if pitch_loss != 0:
             pitch_loss = self.pitch_loss_scale * pitch_loss
             loss += pitch_loss
