@@ -61,7 +61,7 @@ class Generator(torch.nn.Module):
             self.ups.append(weight_norm(
                 ConvTranspose1d(hparams.upsample_initial_channel // (2 ** (i)),
                                 hparams.upsample_initial_channel // (2 ** (i + 1)),
-                                k, u, padding=(k - u) // 2)))
+                                k, u, padding=(u//2 + u%2), output_padding=u%2)))
 
         self.resblocks = nn.ModuleList()
 

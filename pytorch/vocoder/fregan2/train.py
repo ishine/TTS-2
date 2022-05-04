@@ -267,11 +267,11 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--group_name', default=None)
-    parser.add_argument('--input_training_file', default='/workspace/sh_lee/dataset/LJSpeech_22050/train')
-    parser.add_argument('--input_validation_file', default='/workspace/sh_lee/dataset/LJSpeech_22050/val')
+    parser.add_argument('--input_training_file', default='/data/train')
+    parser.add_argument('--input_validation_file', default='/data/val')
 
-    parser.add_argument('--checkpoint_path', default='/workspace/sh_lee/log_fregan/FreGAN2_v1')
-    parser.add_argument('--config', default='./config_fregan2_v1.json')
+    parser.add_argument('--checkpoint_path', default='/FreGAN2_v1')
+    parser.add_argument('--config', default='./config.json')
 
     # parser.add_argument('--checkpoint_path', default='/workspace/sh_lee/log_fregan/FreGAN2_v2')
     # parser.add_argument('--config', default='./config_fregan2_v2.json')
