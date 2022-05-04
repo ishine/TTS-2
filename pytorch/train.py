@@ -68,7 +68,7 @@ def main(config, checkpoint):
         print("Using mixed precision")
         scaler = GradScaler()
 
-    epoch = 1
+    epoch = 0
     step = 0
     if checkpoint is not None:
         checkpoint = torch.load(checkpoint)

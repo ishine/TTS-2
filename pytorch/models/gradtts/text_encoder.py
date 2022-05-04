@@ -278,10 +278,119 @@ class Encoder(nn.Module):
         return x
 
 
+class ConformerFFN(nn.Module):
+    # DelightfulTTS: The Microsoft Speech Synthesis System for Blizzard Challenge 2021
+    def __init__(self, in_channels, out_channels, filter_channels, kernel_size, 
+                 p_dropout=0.0):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.filter_channels = filter_channels
+        self.kernel_size = kernel_size
+        self.p_dropout = p_dropout
+
+        self.norm = LayerNorm(in_channels)
+        self.conv_1 = nn.Conv1d(in_channels, filter_channels, kernel_size, 
+                                      padding=kernel_size//2)
+        self.conv_2 = nn.Conv1d(filter_channels, out_channels, kernel_size, 
+                                      padding=kernel_size//2)
+        self.drop = nn.Dropout(p_dropout)
+
+    def forward(self, x, x_mask):
+        o = self.norm(x)
+        o = self.conv_1(o * x_mask)
+        o = torch.relu(o)
+        o = self.drop(o)
+        o = self.conv_2(o * x_mask)
+        o = self.drop(o)
+        return (0.5 * o + x) * x_mask
+
+
+class ConformerConvolution(nn.Module):
+    # DelightfulTTS: The Microsoft Speech Synthesis System for Blizzard Challenge 2021
+    def __init__(self, in_channels, out_channels, filter_channels, kernel_size, 
+                 p_dropout=0.0):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.filter_channels = filter_channels
+        self.kernel_size = kernel_size
+        self.p_dropout = p_dropout
+
+        self.norm = LayerNorm(in_channels)
+        self.pw_conv_1 = nn.Conv1d(in_channels, filter_channels * 2, 1)
+        self.glu = nn.GLU(dim=1)
+        self.dw_conv = nn.Conv1d(filter_channels, filter_channels, kernel_size=7, 
+                                      padding=3, groups=filter_channels)
+        self.bn = nn.BatchNorm1d(filter_channels)
+        self.pw_conv_2 = nn.Conv1d(filter_channels, out_channels, kernel_size, 
+                                      padding=kernel_size//2)
+        self.drop = nn.Dropout(p_dropout)
+
+    def forward(self, x, x_mask):
+        o = self.norm(x)
+        o = self.pw_conv_1(o * x_mask)
+        o = self.glu(o)
+        o = self.dw_conv(o * x_mask)
+        o = self.bn(o)
+        o = torch.relu(o)
+        o = self.pw_conv_2(o * x_mask)
+        o = self.drop(o)
+        return (o + x) * x_mask
+
+
+class Conformer(nn.Module):
+    def __init__(self, hidden_channels, filter_channels, n_heads, n_layers, 
+                 kernel_size=1, p_dropout=0.0, window_size=None, **kwargs):
+        super().__init__()
+        self.hidden_channels = hidden_channels
+        self.filter_channels = filter_channels
+        self.n_heads = n_heads
+        self.n_layers = n_layers
+        self.kernel_size = kernel_size
+        self.p_dropout = p_dropout
+        self.window_size = window_size
+
+        self.drop = nn.Dropout(p_dropout)
+        self.ffn_layers_1 = nn.ModuleList()
+        self.conv_layers = nn.ModuleList()
+        self.attn_layers = nn.ModuleList()
+        self.norm_layers_1 = nn.ModuleList()
+        self.ffn_layers_2 = nn.ModuleList()
+        self.norm_layers_2 = nn.ModuleList()
+        for _ in range(self.n_layers):
+            self.ffn_layers_1.append(ConformerFFN(hidden_channels, hidden_channels,
+                                                  filter_channels, kernel_size, p_dropout=p_dropout))
+            self.conv_layers.append(ConformerConvolution(hidden_channels, hidden_channels,
+                                                         filter_channels, kernel_size, p_dropout=p_dropout))
+            self.attn_layers.append(MultiHeadAttention(hidden_channels, hidden_channels,
+                                    n_heads, window_size=window_size, p_dropout=p_dropout))
+            self.norm_layers_1.append(LayerNorm(hidden_channels))
+            self.ffn_layers_2.append(ConformerFFN(hidden_channels, hidden_channels,
+                                                  filter_channels, kernel_size, p_dropout=p_dropout))
+            self.norm_layers_2.append(LayerNorm(hidden_channels))
+
+    def forward(self, x, x_mask):
+        attn_mask = x_mask.unsqueeze(2) * x_mask.unsqueeze(-1)
+        for i in range(self.n_layers):
+            x = x * x_mask
+            x = self.ffn_layers_1[i](x, x_mask)
+            x = self.conv_layers[i](x, x_mask)
+            y = self.norm_layers_1[i](x)
+            y = self.attn_layers[i](y, y, attn_mask)
+            y = self.drop(y)
+            x = x + y
+            x = self.ffn_layers_2[i](x, x_mask)
+            x = self.norm_layers_2[i](x)
+        x = x * x_mask
+        return x
+
+
 class TextEncoder(nn.Module):
     def __init__(self, n_vocab, n_feats, n_channels, filter_channels, 
                  filter_channels_dp, n_heads, n_layers, kernel_size, 
-                 p_dropout, window_size=None, spk_emb_dim=64, n_spks=1):
+                 p_dropout, window_size=None, spk_emb_dim=64, n_spks=1,
+                 conformer=False):
         super().__init__()
         self.n_vocab = n_vocab
         self.n_feats = n_feats
@@ -302,8 +411,12 @@ class TextEncoder(nn.Module):
         self.prenet = ConvReluNorm(n_channels, n_channels, n_channels, 
                                    kernel_size=5, n_layers=3, p_dropout=0.5)
 
-        self.encoder = Encoder(n_channels + (spk_emb_dim if n_spks > 1 else 0), filter_channels, n_heads, n_layers, 
-                               kernel_size, p_dropout, window_size=window_size)
+        if conformer:
+            self.encoder = Conformer(n_channels + (spk_emb_dim if n_spks > 1 else 0), filter_channels, n_heads, n_layers, 
+                                kernel_size, p_dropout, window_size=window_size)
+        else:
+            self.encoder = Encoder(n_channels + (spk_emb_dim if n_spks > 1 else 0), filter_channels, n_heads, n_layers, 
+                                kernel_size, p_dropout, window_size=window_size)
 
         self.proj_m = nn.Conv1d(n_channels + (spk_emb_dim if n_spks > 1 else 0), n_feats, 1)
         self.proj_w = DurationPredictor(n_channels + (spk_emb_dim if n_spks > 1 else 0), filter_channels_dp, 

@@ -71,12 +71,13 @@ class GradTTS(nn.Module):
         self.mel_max = config.get('mel_max')
         self.pitch = config.get('pitch')
         self.pitch_loss_scale = config.get('pitch_loss_scale')
+        self.conformer = config.get('conformer')
 
         if self.n_spks > 1:
             self.spk_emb = nn.Embedding(self.n_spks, self.spk_emb_dim)
         self.encoder = TextEncoder(self.n_vocab, self.n_feats, self.n_enc_channels, 
                                    self.filter_channels, self.filter_channels_dp, self.n_heads, 
-                                   self.n_enc_layers, self.enc_kernel, self.enc_dropout, self.window_size)
+                                   self.n_enc_layers, self.enc_kernel, self.enc_dropout, self.window_size, conformer=self.conformer)
         self.decoder = Decoder(self.n_feats, self.n_enc_channels, self.n_layers, self.dec_dim, self.max_steps, self.loss_fn)
 
         if self.pitch:
