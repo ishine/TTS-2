@@ -2,6 +2,7 @@ import argparse
 import json
 from pathlib import Path
 
+from joblib import Parallel, delayed
 import librosa
 import numpy as np
 import soundfile as sf
@@ -53,14 +54,18 @@ def main():
     outdir = f"{dir}_out"
     Path(outdir).mkdir(parents=True, exist_ok=True)
     wavs = list(Path(dir).rglob('*.wav')) + list(Path(dir).rglob('*mic2.flac'))
-    for i, path in enumerate(tqdm(wavs)):
+
+    def helper(i, path):
         wav = load_audio(path, resample=sampling_rate)
-        wav, _ = librosa.effects.trim(wav, trim_threshold_in_db, frame_length=trim_frame_size, hop_length=trim_hop_size)
+        if trim_silence:
+            wav, _ = librosa.effects.trim(wav, trim_threshold_in_db, frame_length=trim_frame_size, hop_length=trim_hop_size)
         y = torch.tensor(wav, device=device).unsqueeze(0)
         mel = mel_spectrogram(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax).squeeze().cpu().numpy()
         out = f"{outdir}/{i}"
         np.save(f"{out}-wave.npy", wav)
         np.save(f"{out}-feats.npy", mel)
+
+    Parallel(n_jobs=-1, verbose=10)(delayed(helper)(i, path) for i, path in enumerate(wavs))
 
 
 if __name__ == '__main__':
