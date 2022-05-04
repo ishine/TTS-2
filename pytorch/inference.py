@@ -18,8 +18,13 @@ def main(config, ckpt, text):
     g2p = G2p()
     phonemes = list(config['phonemes'])
     symbol_to_id = generate_symbol_to_id(phonemes)
-    text_seq = g2p(text, descriptive=True, group_vowels=True, to_syl=False)
-    text_seq = text_seq.replace("ᄋ", "")
+    text_seq = text.split(" ")
+    processed = []
+    for sentence in text_seq:
+        sentence = g2p(sentence, descriptive=True, group_vowels=True, to_syl=False)
+        sentence = sentence.replace("ᄋ", "")
+        processed.append(sentence)
+    text_seq = " ".join(processed)
     text_seq = text_to_sequence(text_seq, symbol_to_id)
     if config['add_blank']:
         text_seq = intersperse(text_seq, len(phonemes))

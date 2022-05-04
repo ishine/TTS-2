@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
-import os
 
+import matplotlib
 import torch
 from torch.cuda.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
@@ -29,6 +29,8 @@ def save(name, step, epoch, model, opt, sch, scaler=None, size=100):
 
 
 def main(config, checkpoint):
+    matplotlib.use('Agg')
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
