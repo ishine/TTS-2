@@ -137,7 +137,7 @@ def train(rank, a, h, n_gpus):
             y = y.unsqueeze(1)  # [Batch, 1, T]
 
             # Generator
-            y_g_hat, y_low_hat, y_high_hat = generator(x)
+            y_g_hat = generator(x)
 
             # mel_spectrogram --> input.shape: [Batch, T]
 
@@ -217,7 +217,7 @@ def train(rank, a, h, n_gpus):
                             y = y.to(device, non_blocking=True)
                             y_mel = y_mel.to(device, non_blocking=True)
                             x = x.to(device, non_blocking=True)
-                            y_g_hat,_,_ = generator(x)
+                            y_g_hat = generator(x)
 
                             # y_hat: 8192
 
@@ -267,11 +267,11 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--group_name', default=None)
-    parser.add_argument('--input_training_file', default='/data/train')
-    parser.add_argument('--input_validation_file', default='/data/val')
+    parser.add_argument('--input_training_file', default='train_out')
+    parser.add_argument('--input_validation_file', default='val_out')
 
-    parser.add_argument('--checkpoint_path', default='/FreGAN2_v1')
-    parser.add_argument('--config', default='./config.json')
+    parser.add_argument('--checkpoint_path', default='FreGAN2_v1')
+    parser.add_argument('--config', default='config.json')
 
     # parser.add_argument('--checkpoint_path', default='/workspace/sh_lee/log_fregan/FreGAN2_v2')
     # parser.add_argument('--config', default='./config_fregan2_v2.json')

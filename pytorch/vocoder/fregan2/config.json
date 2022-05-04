@@ -30,7 +30,7 @@
 
     "global_gain_scale": 1.0,
     "trim_silence": true,
-    "trim_threshold_in_db": 20,
+    "trim_threshold_in_db": 30,
     "trim_frame_size": 1024,
     "trim_hop_size": 256,
     "format": "npy",

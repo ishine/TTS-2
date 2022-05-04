@@ -53,14 +53,14 @@ def main():
     dir = f"{data}"
     outdir = f"{dir}_out"
     Path(outdir).mkdir(parents=True, exist_ok=True)
-    wavs = list(Path(dir).rglob('*.wav')) + list(Path(dir).rglob('*mic2.flac'))
+    wavs = list(Path(dir).rglob('*.wav')) + list(Path(dir).rglob('*.flac'))
 
     def helper(i, path):
         wav = load_audio(path, resample=sampling_rate)
         if trim_silence:
             wav, _ = librosa.effects.trim(wav, trim_threshold_in_db, frame_length=trim_frame_size, hop_length=trim_hop_size)
         y = torch.tensor(wav, device=device).unsqueeze(0)
-        mel = mel_spectrogram(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax).squeeze().cpu().numpy()
+        mel = mel_spectrogram(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax, center=True).squeeze().cpu().numpy()
         out = f"{outdir}/{i}"
         np.save(f"{out}-wave.npy", wav)
         np.save(f"{out}-feats.npy", mel)

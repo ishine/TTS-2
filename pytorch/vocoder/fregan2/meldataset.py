@@ -106,7 +106,7 @@ class MelDataset(torch.utils.data.Dataset):
         audio = audio.unsqueeze(0)
 
         mel = np.load(mel_filename)
-        mel = torch.from_numpy(mel).unsqueeze(0).transpose(-1, -2)
+        mel = torch.from_numpy(mel).unsqueeze(0)
 
         if self.split:
             frames_per_seg = math.ceil(self.segment_size / self.hop_size)
@@ -123,7 +123,7 @@ class MelDataset(torch.utils.data.Dataset):
                                    self.sampling_rate, self.hop_size, self.win_size, self.fmin, self.fmax_loss,
                                    center=False)
 
-        return (mel.squeeze(), audio.squeeze(0), audio_filename, mel_loss)
+        return (mel.squeeze(), audio.squeeze(0), audio_filename, mel_loss.squeeze())
 
     def __len__(self):
         return len(self.audio_files)
