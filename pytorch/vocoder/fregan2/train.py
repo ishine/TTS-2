@@ -232,6 +232,9 @@ def train(rank, a, h, n_gpus):
                                 audio_one_16000 = librosa.resample(y.squeeze().cpu().numpy(), 22050, 16000)
                                 audio_two_16000 = librosa.resample(y_g_hat.squeeze().cpu().numpy(), 22050, 16000)
                                 # PESQ
+                                min_length = min(len(audio_one_16000), len(audio_two_16000))
+                                audio_one_16000 = audio_one_16000[:min_length]
+                                audio_two_16000 = audio_two_16000[:min_length]
                                 val_pesq += pesq(audio_one_16000, audio_two_16000, 16000)
                             if j <= 4:
                                 if steps == 0:
