@@ -112,8 +112,8 @@ class MelDataset(torch.utils.data.Dataset):
 
             if len(audio) > self.segment_size:
                 mel_start = random.randint(0, mel.size(1) - frames_per_seg - 1)
-                mel = mel[:, :, mel_start:mel_start + frames_per_seg]
-                audio = audio[:, mel_start * self.hop_size:(mel_start + frames_per_seg) * self.hop_size]
+                mel = mel[:, mel_start:mel_start + frames_per_seg]
+                audio = audio[mel_start * self.hop_size:(mel_start + frames_per_seg) * self.hop_size]
             else:
                 mel = torch.nn.functional.pad(mel, (0, frames_per_seg - mel.size(1)), 'constant')
                 audio = torch.nn.functional.pad(audio, (0, self.segment_size - len(audio)), 'constant')
