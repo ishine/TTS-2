@@ -128,10 +128,12 @@ def train(rank, a, h, n_gpus):
             if rank == 0:
                 start_b = time.time()
 
-            x, y, _, y_mel = batch
+            x, y = batch
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True) # [Batch , T], Full resolution
-            y_mel = y_mel.to(device, non_blocking=True) # [Batch , T], Full resolution
+            y_mel = mel_spectrogram(y, h.n_fft, h.num_mels, h.sampling_rate,
+                                    h.hop_size, h.win_size, h.fmin,
+                                    h.fmax_for_loss)
 
 
             y = y.unsqueeze(1)  # [Batch, 1, T]
@@ -142,7 +144,7 @@ def train(rank, a, h, n_gpus):
             # mel_spectrogram --> input.shape: [Batch, T]
 
             y_hat_mel = mel_spectrogram(y_g_hat.squeeze(1), h.n_fft, h.num_mels, h.sampling_rate, h.hop_size,
-                                          h.win_size, h.fmin, h.fmax_for_loss)
+                                        h.win_size, h.fmin, h.fmax_for_loss)
 
             optim_d.zero_grad()
 
@@ -212,10 +214,13 @@ def train(rank, a, h, n_gpus):
                     with torch.no_grad():
                         for j, batch in enumerate(validation_loader):
                             # discriminator 통과안하고 mel loss만
-                            x, y, _, y_mel = batch
+                            x, y = batch
 
                             y = y.to(device, non_blocking=True)
-                            y_mel = y_mel.to(device, non_blocking=True)
+                            y_mel = mel_spectrogram(y, h.n_fft, h.num_mels,
+                                                    h.sampling_rate,
+                                                    h.hop_size, h.win_size,
+                                                    h.fmin, h.fmax_for_loss)
                             x = x.to(device, non_blocking=True)
                             y_g_hat = generator(x)
 

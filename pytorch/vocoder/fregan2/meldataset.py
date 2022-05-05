@@ -102,28 +102,23 @@ class MelDataset(torch.utils.data.Dataset):
         mel_filename = audio_filename.replace('wave', 'feats')
 
         audio = np.load(audio_filename)
-        audio = torch.FloatTensor(audio)  # [1, T]
-        audio = audio.unsqueeze(0)
+        audio = torch.FloatTensor(audio)
 
         mel = np.load(mel_filename)
-        mel = torch.from_numpy(mel).unsqueeze(0)
+        mel = torch.from_numpy(mel)
 
         if self.split:
             frames_per_seg = math.ceil(self.segment_size / self.hop_size)
 
-            if audio.size(1) > self.segment_size:
-                mel_start = random.randint(0, mel.size(2) - frames_per_seg - 1)
+            if len(audio) > self.segment_size:
+                mel_start = random.randint(0, mel.size(1) - frames_per_seg - 1)
                 mel = mel[:, :, mel_start:mel_start + frames_per_seg]
                 audio = audio[:, mel_start * self.hop_size:(mel_start + frames_per_seg) * self.hop_size]
             else:
-                mel = torch.nn.functional.pad(mel, (0, frames_per_seg - mel.size(2)), 'constant')
-                audio = torch.nn.functional.pad(audio, (0, self.segment_size - audio.size(1)), 'constant')
+                mel = torch.nn.functional.pad(mel, (0, frames_per_seg - mel.size(1)), 'constant')
+                audio = torch.nn.functional.pad(audio, (0, self.segment_size - len(audio)), 'constant')
 
-        mel_loss = mel_spectrogram(audio, self.n_fft, self.num_mels,
-                                   self.sampling_rate, self.hop_size, self.win_size, self.fmin, self.fmax_loss,
-                                   center=False)
-
-        return (mel.squeeze(), audio.squeeze(0), audio_filename, mel_loss.squeeze())
+        return mel, audio
 
     def __len__(self):
         return len(self.audio_files)
