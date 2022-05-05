@@ -60,7 +60,7 @@ def main():
         if trim_silence:
             wav, _ = librosa.effects.trim(wav, trim_threshold_in_db, frame_length=trim_frame_size, hop_length=trim_hop_size)
         y = torch.tensor(wav, device=device).unsqueeze(0)
-        mel = mel_spectrogram(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax, center=True).squeeze().cpu().numpy()
+        mel = mel_spectrogram(y, n_fft, num_mels, sampling_rate, hop_size, win_size, fmin, fmax, center=False).squeeze().cpu().numpy()
         out = f"{outdir}/{i}"
         np.save(f"{out}-wave.npy", wav)
         np.save(f"{out}-feats.npy", mel)
