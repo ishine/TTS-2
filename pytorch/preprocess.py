@@ -14,6 +14,10 @@ def main(transcript, strip_o, min_length):
     phonemes = set()
     trans = str.maketrans('','',string.punctuation)
     root = f"{Path(transcript).parent}"
+
+    mel_min = float('inf')
+    mel_max = float('-inf')
+
     with open(f"{transcript}", encoding='utf8') as i, open(f"{transcript}_processed.txt", 'w') as o:
         for line in i:
             path, text = line.strip().split("|")
@@ -33,6 +37,8 @@ def main(transcript, strip_o, min_length):
                 wav = load_audio(path)
                 wav = librosa.effects.trim(wav, top_db=30, frame_length=1024, hop_length=256)[0]
                 mel = mel_spectrogram(wav, 24000)
+                mel_min = min(np.amin(mel), mel_min)
+                mel_max = max(np.amax(mel), mel_max)
                 f0s = f0(wav)
 
                 mel_len = mel.shape[-1]
@@ -42,6 +48,7 @@ def main(transcript, strip_o, min_length):
                 o.write(f"{path}|{processed}\n")
                 np.savez(path, mel=mel, f0=f0s, align_prior_matrix=align_prior_matrix)
     print(phonemes)
+    print(mel_min, mel_max)
 
 
 if __name__ == "__main__":
